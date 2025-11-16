@@ -1,0 +1,171 @@
+// ============================================================================
+// MA Strategy Tests – Pine Script Implementation Guide
+// ============================================================================
+// 
+// Этот файл показывает, как перенести найденные лучшие MA периоды
+// из анализа Python в TradingView Pine Script для торговли в реальном времени
+//
+// ⚠️ ВАЖНО: Это КОД-ПРИМЕР, а не готовая торговая система!
+//           Требует бэктестирования, управления рисками, стопов, и т.д.
+//
+// Версия: Pine Script v5
+// ============================================================================
+
+//@version=5
+indicator("MA Bounce Detector [Beta]", overlay=true, max_bars_back=5000)
+
+// ============================================================================
+// ПАРАМЕТРЫ
+// ============================================================================
+
+// Скользящие средние
+ma_period = input.int(title="MA Period", defval=50, minval=2)
+ma_type = input.string(title="MA Type", defval="SMA", options=["SMA", "EMA"])
+
+// Пороги отскока
+alpha_wick = input.float(title="Min Wick % of Candle", defval=0.30, minval=0, maxval=1)
+n_pre = input.int(title="Isolation Pre-Candles", defval=5, minval=1)
+n_post = input.int(title="Isolation Post-Candles", defval=5, minval=1)
+
+// Целевое движение
+target_pct = input.float(title="Target Move %", defval=0.03, minval=0.001)
+max_lookahead = input.int(title="Max Lookahead Candles", defval=200, minval=10)
+
+// Визуализация
+show_ma = input(true, "Show MA")
+show_touches = input(true, "Show Touches")
+show_signals = input(true, "Show Signals")
+
+// ============================================================================
+// ВЫЧИСЛЕНИЯ
+// ============================================================================
+
+// Вычисли скользящую среднюю
+ma_value = if ma_type == "EMA"
+    ta.ema(close, ma_period)
+else
+    ta.sma(close, ma_period)
+
+// Размер тела свечи (open-close)
+body_min = math.min(open, close)
+body_max = math.max(open, close)
+candle_size = high - low
+
+// Определи wick touch (касание только хвостом)
+is_wick_touch = if not na(ma_value)
+    // MA находится в пределах свечи
+    ma_value >= low and ma_value <= high and
+    // MA НЕ в теле свечи
+    (ma_value < body_min or ma_value > body_max) and
+    // Wick достаточно длинный
+    (math.min(ma_value - low, high - ma_value) >= alpha_wick * candle_size)
+else
+    false
+
+// Проверка изоляции (нет других касаний в окне)
+check_isolation = true
+for i = 1 to n_pre
+    if i < bar_index
+        // Проверь n_pre свечей до
+        if high[i] >= ma_value - candle_size*alpha_wick and low[i] <= ma_value + candle_size*alpha_wick
+            check_isolation := false
+
+// ============================================================================
+// ПРОСТОЙ СИГНАЛ (для реального времени – это НЕ ждёт целей!)
+// ============================================================================
+
+// Определи направление отскока (бычий или медвежий)
+bullish_touch = is_wick_touch and low < body_min
+bearish_touch = is_wick_touch and high > body_max
+
+// Сигнал при отскоке (БЕЗ проверки цели, т.к. она в будущем)
+// ⚠️ Это НАИВНЫЙ сигнал – в реальной торговле нужны стопы и мани-менеджмент!
+signal_buy = bullish_touch and check_isolation
+signal_sell = bearish_touch and check_isolation
+
+// ============================================================================
+// ВИЗУАЛИЗАЦИЯ
+// ============================================================================
+
+// Покрась фон при wick-touch
+bgcolor(is_wick_touch ? color.new(color.gray, 90) : na)
+
+// Отрисуй MA
+plot(show_ma ? ma_value : na, title="MA", color=color.blue, linewidth=2)
+
+// Отрисуй точки wick-touch
+plotshape(show_touches and is_wick_touch ? ma_value : na,
+    title="Wick Touch",
+    style=shape.circle,
+    location=location.absolute,
+    color=color.orange,
+    size=size.small)
+
+// Отрисуй сигналы
+plotshape(show_signals and signal_buy ? low : na,
+    title="Buy Signal",
+    style=shape.labelup,
+    location=location.belowbar,
+    color=color.green,
+    size=size.small,
+    text="BUY")
+
+plotshape(show_signals and signal_sell ? high : na,
+    title="Sell Signal",
+    style=shape.labeldown,
+    location=location.abovebar,
+    color=color.red,
+    size=size.small,
+    text="SELL")
+
+// ============================================================================
+// ALERT (для оповещений)
+// ============================================================================
+
+if signal_buy
+    alert("BUY: Bullish MA touch on " + syminfo.tickerid, alert.freq_once_per_bar)
+
+if signal_sell
+    alert("SELL: Bearish MA touch on " + syminfo.tickerid, alert.freq_once_per_bar)
+
+// ============================================================================
+// ТАБЛИЦА СТАТИСТИКИ
+// ============================================================================
+
+var table stats_table = na
+if barstate.islast
+    if na(stats_table)
+        stats_table := table.new(position.top_right, 2, 4, border_color=color.gray)
+        table.cell(stats_table, 0, 0, "MA Period", text_color=color.white, bgcolor=color.blue)
+        table.cell(stats_table, 1, 0, str.tostring(ma_period), text_color=color.white, bgcolor=color.blue)
+        table.cell(stats_table, 0, 1, "MA Type", text_color=color.white, bgcolor=color.blue)
+        table.cell(stats_table, 1, 1, ma_type, text_color=color.white, bgcolor=color.blue)
+        table.cell(stats_table, 0, 2, "Target %", text_color=color.white, bgcolor=color.blue)
+        table.cell(stats_table, 1, 2, str.format("{0.2f}%", target_pct*100), text_color=color.white, bgcolor=color.blue)
+        table.cell(stats_table, 0, 3, "Wick Min %", text_color=color.white, bgcolor=color.blue)
+        table.cell(stats_table, 1, 3, str.format("{0.0f}%", alpha_wick*100), text_color=color.white, bgcolor=color.blue)
+
+// ============================================================================
+// ПРИМЕЧАНИЯ
+// ============================================================================
+
+// 1. ЭТО НАИВНЫЙ ИНДИКАТОР
+//    - Не проверяет будущие цены (в реальном времени их нет)
+//    - Не имеет управления рисками
+//    - Не имеет стопов и целей прибыли
+//    - Требует обширного бэктестирования перед использованием
+
+// 2. ПРИМЕНЕНИЕ РЕЗУЛЬТАТОВ АНАЛИЗА
+//    - Запустите Python анализ и найдите лучшие MA периоды
+//    - Замените значения ma_period выше на найденные периоды
+//    - Можно создать несколько индикаторов с разными периодами
+//    - Используйте策略 kombinаций для подтверждения
+
+// 3. NEXT STEPS
+//    a) Добавь стоп-лосс и take-profit
+//    b) Добавь фильтры (volume, volatility, trend)
+//    c) Бэктест на истории с реальными комиссиями
+//    d) Paper-trade несколько недель
+//    e) Используй только после положительного результата на OOS данных
+
+// ============================================================================
