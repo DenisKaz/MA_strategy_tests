@@ -80,6 +80,13 @@ def main():
         default=DEFAULT_FETCH_CONFIG.max_candles_per_request,
         help='Максимум свечей в одной загрузке (по умолчанию: 500000)',
     )
+
+    parser.add_argument(
+        '--stream',
+        action='store_true',
+        default=DEFAULT_FETCH_CONFIG.stream_write,
+        help='Включить потоковую запись CSV по частям (рекомендуется для больших TF)',
+    )
     
     parser.add_argument(
         '--verbose', '-v',
@@ -104,6 +111,7 @@ def main():
         limit_per_request=args.limit,
         max_candles_per_request=args.max_candles,
         max_history_years=args.years,
+        stream_write=args.stream,
     )
     
     # Выполнить загрузку
