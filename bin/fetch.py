@@ -63,22 +63,22 @@ def main():
     parser.add_argument(
         '--years',
         type=int,
-        default=DEFAULT_FETCH_CONFIG.years_of_history,
-        help='Количество лет истории для таймфреймов < 1d',
+        default=DEFAULT_FETCH_CONFIG.max_history_years,
+        help='Глубина истории в годах для всех таймфреймов (по умолчанию: 4)',
     )
     
     parser.add_argument(
         '--limit',
         type=int,
         default=DEFAULT_FETCH_CONFIG.limit_per_request,
-        help='Лимит свечей на один запрос',
+        help='Лимит свечей на один запрос к бирже (по умолчанию: 1000)',
     )
     
     parser.add_argument(
         '--max-candles',
         type=int,
-        default=DEFAULT_FETCH_CONFIG.max_candles,
-        help='Максимум свечей всего для одной пары/таймфрейма',
+        default=DEFAULT_FETCH_CONFIG.max_candles_per_request,
+        help='Максимум свечей в одной загрузке (по умолчанию: 500000)',
     )
     
     parser.add_argument(
@@ -102,8 +102,8 @@ def main():
         symbols=args.symbols,
         timeframes=args.timeframes,
         limit_per_request=args.limit,
-        max_candles=args.max_candles,
-        years_of_history=args.years,
+        max_candles_per_request=args.max_candles,
+        max_history_years=args.years,
     )
     
     # Выполнить загрузку

@@ -61,16 +61,20 @@ class DataFetcher:
         Параметры:
             symbol: торговая пара (например, 'BTC/USDT')
             timeframe: таймфрейм ('1m', '5m', '1h', '1d', и т.д.)
-            since: метка времени начала (мс) или None для начала с 0
+            since: метка времени начала (мс) — если None, загружает с самого начала истории биржи
         
         Возвращает:
             DataFrame с колонками: ts, open, high, low, close, volume, datetime (индекс)
+        
+        Примечание:
+            Загружает данные порциями по limit_per_request свечей.
+            Если данных меньше, чем max_candles_per_request, загружает всё что есть.
         """
         all_bars = []
         now = self.exchange.milliseconds()
         fetch_since = since if since is not None else 0
         
-        logger.info(f"Загрузка {symbol} {timeframe} (с {since or 'начала'})")
+        logger.info(f"  Загрузка {symbol} {timeframe} (с {since or 'начала истории'})")
         
         request_count = 0
         while True:
@@ -82,19 +86,20 @@ class DataFetcher:
                     limit=self.fetch_config.limit_per_request,
                 )
             except (ccxt.NetworkError, ccxt.ExchangeError) as e:
-                logger.warning(f"Ошибка сети/биржи: {e}. Пробую ещё...")
+                logger.warning(f"  ⚠ Ошибка сети/биржи: {e}. Пробую ещё...")
                 time.sleep(5)
                 continue
             
             if not bars:
-                logger.debug(f"  Нет новых данных, выход")
+                logger.debug(f"    Нет новых данных, выход из цикла")
                 break
             
             all_bars.extend(bars)
             request_count += 1
             
-            if len(all_bars) >= self.fetch_config.max_candles:
-                logger.info(f"  Достигнут лимит {self.fetch_config.max_candles} свечей")
+            # Проверка достижения лимита свечей за одну загрузку
+            if len(all_bars) >= self.fetch_config.max_candles_per_request:
+                logger.info(f"    Достигнут лимит {self.fetch_config.max_candles_per_request} свечей")
                 break
             
             last_ts = bars[-1][0]
@@ -102,14 +107,14 @@ class DataFetcher:
             # Если достигли текущего времени — выход
             tf_ms = self.exchange.parse_timeframe(timeframe) * 1000
             if last_ts >= now - tf_ms:
-                logger.debug(f"  Достигнуто текущее время")
+                logger.debug(f"    Достигнуто текущее время")
                 break
             
             fetch_since = last_ts + 1
             time.sleep(self.exchange.rateLimit / 1000)
             
             if request_count % 10 == 0:
-                logger.info(f"  Загружено {len(all_bars)} свечей ({request_count} запросов)...")
+                logger.info(f"    Загружено {len(all_bars)} свечей ({request_count} запросов)...")
         
         # Преобразование в DataFrame
         df = pd.DataFrame(all_bars, columns=['ts', 'open', 'high', 'low', 'close', 'volume'])
@@ -117,26 +122,32 @@ class DataFetcher:
         df = df.set_index('datetime')
         df = df.sort_index()
         
-        logger.info(f"  ✓ Загружено {len(df)} свечей за {request_count} запросов")
+        logger.info(f"    ✓ Загружено {len(df)} свечей за {request_count} запросов")
         return df
     
     def fetch_and_save(self, symbols: Optional[List[str]] = None) -> None:
         """
         Загрузить данные для всех пар/таймфреймов и сохранить в CSV.
         
+        Глубина загрузки определяется max_history_years (одинаково для всех таймфреймов).
+        Для каждого таймфрейма вычисляется соответствующее количество свечей:
+        - 1m за 4 года ≈ 2 млн свечей
+        - 1h за 4 года ≈ 35 тысяч свечей
+        - 1d за 4 года ≈ 1400 свечей
+        
         Параметры:
             symbols: список пар (если None, используется из конфига)
         """
         symbols = symbols or self.validate_symbols()
         
-        # Вычислить with since для таймфреймов < 1d
-        threshold_tf_seconds = self.exchange.parse_timeframe(self.fetch_config.timeframe_threshold)
-        years_ms = self.fetch_config.years_of_history * 365 * 24 * 60 * 60 * 1000
-        since_for_small_tf = self.exchange.milliseconds() - years_ms
+        # Вычислить since для всех таймфреймов (один раз для всех, одинаково)
+        history_ms = self.fetch_config.max_history_years * 365 * 24 * 60 * 60 * 1000
+        since_timestamp = self.exchange.milliseconds() - history_ms
         
         logger.info(f"Начинаю загрузку данных...")
         logger.info(f"  Пары: {symbols}")
         logger.info(f"  Таймфреймы: {self.fetch_config.timeframes}")
+        logger.info(f"  Глубина истории: {self.fetch_config.max_history_years} лет (с {since_timestamp})")
         
         total = len(symbols) * len(self.fetch_config.timeframes)
         current = 0
@@ -144,14 +155,11 @@ class DataFetcher:
         for symbol in symbols:
             for tf in self.fetch_config.timeframes:
                 current += 1
-                tf_seconds = self.exchange.parse_timeframe(tf)
-                
-                # Определить since: для мелких TF — история, для крупных — с начала
-                since = since_for_small_tf if tf_seconds < threshold_tf_seconds else None
                 
                 logger.info(f"[{current}/{total}] Загружаю {symbol} {tf}...")
                 
-                df = self._fetch_ohlcv_all(symbol, tf, since=since)
+                # Для всех таймфреймов используем одинаковый since (глубина в годах)
+                df = self._fetch_ohlcv_all(symbol, tf, since=since_timestamp)
                 
                 # Сохранить в CSV
                 safe_symbol = symbol.replace('/', '_')
@@ -159,6 +167,6 @@ class DataFetcher:
                 filepath = DATA_DIR / filename
                 
                 df.to_csv(filepath)
-                logger.info(f"  → Сохранено: {filepath} ({len(df)} строк)")
+                logger.info(f"  → Сохранено: {filepath} ({len(df)} свечей за ~{len(df) * self.exchange.parse_timeframe(tf) / 60 / 60 / 24:.0f} дней)")
         
         logger.info("✓ Загрузка завершена!")

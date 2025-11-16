@@ -30,9 +30,10 @@ class FetchConfig:
     symbols: List[str] = field(default_factory=lambda: ['BTC/USDT', 'ETH/USDT'])
     timeframes: List[str] = field(default_factory=lambda: ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '1d'])
     limit_per_request: int = 1000  # Лимит свечей на запрос
-    max_candles: int = 500000       # Максимум свечей всего
-    years_of_history: int = 1       # Сколько лет истории для таймфреймов < 1d
-    timeframe_threshold: str = '1d' # Таймфреймы меньше этого будут загружать историю за N лет
+    max_history_years: int = 4     # Максимальная глубина истории в годах (для всех таймфреймов)
+    # Примечание: реальное количество свечей зависит от таймфрейма
+    # 1m за 4 года ≈ 2M свечей; 1d за 4 года ≈ 1400 свечей
+    max_candles_per_request: int = 500000  # Максимум свечей в одной выгрузке (на случай прерываний)
 
 
 @dataclass
