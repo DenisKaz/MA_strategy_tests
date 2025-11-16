@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
+.venv/
+
+# Logs
+*.log
+
+# Data files (do not commit large datasets)
+/data/
+*.csv
+*.xls
+*.xlsx
+*.parquet
+
+# Mac
+.DS_Store
+
+# Editor temporary files
+*~
+.vscode/
